@@ -4,7 +4,7 @@ import { SportEvent } from '../types/betting';
 
 interface EventCardProps {
   event: SportEvent;
-  onPlaceBet: (eventId: string, team: 'home' | 'away' | 'draw', odds: number) => void;
+  onPlaceBet: (team: 'home' | 'away' | 'draw', odds: number) => void;
 }
 
 export const EventCard: React.FC<EventCardProps> = ({ event, onPlaceBet }) => {
@@ -29,7 +29,7 @@ export const EventCard: React.FC<EventCardProps> = ({ event, onPlaceBet }) => {
         <div className="text-center flex-1">
           <h3 className="font-bold text-xl mb-2">{event.teams[0]}</h3>
           <button
-            onClick={() => onPlaceBet(event.id, 'home', event.odds.home)}
+            onClick={() => onPlaceBet('home', event.odds.home)}
             className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
           >
             Bet Home ({event.odds.home}x)
@@ -40,7 +40,7 @@ export const EventCard: React.FC<EventCardProps> = ({ event, onPlaceBet }) => {
           <span className="text-2xl font-bold">VS</span>
           {event.odds.draw && (
             <button
-              onClick={() => onPlaceBet(event.id, 'draw', event.odds.draw)}
+              onClick={() => onPlaceBet('draw', event.odds.draw)}
               className="block mt-2 bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition"
             >
               Draw ({event.odds.draw}x)
@@ -51,7 +51,7 @@ export const EventCard: React.FC<EventCardProps> = ({ event, onPlaceBet }) => {
         <div className="text-center flex-1">
           <h3 className="font-bold text-xl mb-2">{event.teams[1]}</h3>
           <button
-            onClick={() => onPlaceBet(event.id, 'away', event.odds.away)}
+            onClick={() => onPlaceBet('away', event.odds.away)}
             className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
           >
             Bet Away ({event.odds.away}x)

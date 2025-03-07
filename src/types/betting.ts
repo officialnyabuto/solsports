@@ -1,3 +1,5 @@
+import { PublicKey } from '@solana/web3.js';
+
 export interface SportEvent {
   id: string;
   sport: string;
@@ -8,6 +10,7 @@ export interface SportEvent {
     away: number;
     draw?: number;
   };
+  poolPubkey: PublicKey;
 }
 
 export interface Bet {
@@ -16,6 +19,7 @@ export interface Bet {
   selectedTeam: 'home' | 'away' | 'draw';
   odds: number;
   timestamp: Date;
+  betPubkey?: PublicKey;
 }
 
 export interface WalletBalance {

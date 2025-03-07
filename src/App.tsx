@@ -6,66 +6,117 @@ import { EventCard } from './components/EventCard';
 import { BettingModal } from './components/BettingModal';
 import { WalletBalance } from './components/WalletBalance';
 import { SportEvent, Bet, WalletBalance as WalletBalanceType } from './types/betting';
-
-// Mock data - replace with actual data from your Solana program
-const mockEvents: SportEvent[] = [
-  {
-    id: '1',
-    sport: 'Soccer',
-    teams: ['Manchester United', 'Liverpool'],
-    startTime: new Date(Date.now() + 86400000),
-    odds: { home: 2.1, away: 3.2, draw: 3.0 },
-  },
-  {
-    id: '2',
-    sport: 'Basketball',
-    teams: ['Lakers', 'Warriors'],
-    startTime: new Date(Date.now() + 172800000),
-    odds: { home: 1.9, away: 1.8 },
-  },
-];
+import { useProgramService } from './hooks/useProgramService';
+import { PublicKey } from '@solana/web3.js';
 
 function App() {
-  const { connected } = useWallet();
-  const [events] = useState<SportEvent[]>(mockEvents);
+  const { connected, publicKey } = useWallet();
+  const programService = useProgramService();
+  
+  const [events, setEvents] = useState<SportEvent[]>([]);
   const [selectedBet, setSelectedBet] = useState<{
     eventId: string;
     team: 'home' | 'away' | 'draw';
     odds: number;
+    poolPubkey: PublicKey;
   } | null>(null);
   const [bets, setBets] = useState<Bet[]>([]);
   const [balance, setBalance] = useState<WalletBalanceType>({
     sol: 0,
     usdc: 0,
   });
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (connected) {
-      // Mock balance - replace with actual wallet balance fetch
-      setBalance({
-        sol: 1.5,
-        usdc: 100,
-      });
+    if (connected && programService) {
+      fetchBettingPools();
+      fetchUserBets();
     }
-  }, [connected]);
+  }, [connected, programService]);
 
-  const handlePlaceBet = (eventId: string, team: 'home' | 'away' | 'draw', odds: number) => {
-    setSelectedBet({ eventId, team, odds });
+  const fetchBettingPools = async () => {
+    if (!programService) return;
+    
+    try {
+      setLoading(true);
+      const pools = await programService.fetchBettingPools();
+      const mappedEvents: SportEvent[] = pools.map(pool => ({
+        id: pool.eventId,
+        sport: 'Soccer', // You might want to add sport type to your program state
+        teams: [pool.homeTeam, pool.awayTeam],
+        startTime: new Date(pool.startTime.toNumber() * 1000),
+        odds: {
+          home: pool.homeOdds.toNumber() / 100,
+          away: pool.awayOdds.toNumber() / 100,
+          draw: pool.drawOdds ? pool.drawOdds.toNumber() / 100 : undefined,
+        },
+        poolPubkey: pool.pubkey,
+      }));
+      setEvents(mappedEvents);
+    } catch (error) {
+      console.error('Error fetching betting pools:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleConfirmBet = (amount: number) => {
-    if (selectedBet) {
-      const newBet: Bet = {
-        eventId: selectedBet.eventId,
-        amount,
-        selectedTeam: selectedBet.team,
-        odds: selectedBet.odds,
+  const fetchUserBets = async () => {
+    if (!programService || !publicKey) return;
+    
+    try {
+      const userBets = await programService.fetchUserBets(publicKey);
+      const mappedBets: Bet[] = userBets.map(bet => ({
+        eventId: bet.eventId,
+        amount: bet.amount.toNumber(),
+        selectedTeam: bet.betType.home ? 'home' : bet.betType.away ? 'away' : 'draw',
+        odds: bet.odds.toNumber() / 100,
         timestamp: new Date(),
-      };
-      setBets([...bets, newBet]);
-      // Here you would interact with your Solana program to place the bet
+        betPubkey: bet.pubkey,
+      }));
+      setBets(mappedBets);
+    } catch (error) {
+      console.error('Error fetching user bets:', error);
     }
-    setSelectedBet(null);
+  };
+
+  const handlePlaceBet = (eventId: string, team: 'home' | 'away' | 'draw', odds: number, poolPubkey: PublicKey) => {
+    setSelectedBet({ eventId, team, odds, poolPubkey });
+  };
+
+  const handleConfirmBet = async (amount: number) => {
+    if (!selectedBet || !programService) return;
+
+    try {
+      setLoading(true);
+      await programService.placeBet(
+        selectedBet.poolPubkey,
+        amount * 100, // Convert to program's decimal representation
+        selectedBet.team
+      );
+      
+      // Refresh user bets
+      await fetchUserBets();
+      
+      setSelectedBet(null);
+    } catch (error) {
+      console.error('Error placing bet:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleClaimWinnings = async (betPubkey: PublicKey, poolPubkey: PublicKey) => {
+    if (!programService) return;
+
+    try {
+      setLoading(true);
+      await programService.claimWinnings(poolPubkey, betPubkey);
+      await fetchUserBets(); // Refresh bets after claiming
+    } catch (error) {
+      console.error('Error claiming winnings:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -87,13 +138,19 @@ function App() {
               
               <div className="mb-8">
                 <h2 className="text-xl font-semibold mb-4">Available Events</h2>
-                {events.map((event) => (
-                  <EventCard
-                    key={event.id}
-                    event={event}
-                    onPlaceBet={handlePlaceBet}
-                  />
-                ))}
+                {loading ? (
+                  <div className="text-center py-8">Loading events...</div>
+                ) : (
+                  events.map((event) => (
+                    <EventCard
+                      key={event.id}
+                      event={event}
+                      onPlaceBet={(team, odds) => 
+                        handlePlaceBet(event.id, team, odds, event.poolPubkey)
+                      }
+                    />
+                  ))
+                )}
               </div>
 
               {bets.length > 0 && (
@@ -113,6 +170,14 @@ function App() {
                         <p className="text-sm text-gray-600">
                           Placed: {bet.timestamp.toLocaleString()}
                         </p>
+                        {bet.betPubkey && (
+                          <button
+                            onClick={() => handleClaimWinnings(bet.betPubkey, events.find(e => e.id === bet.eventId)?.poolPubkey!)}
+                            className="mt-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition"
+                          >
+                            Claim Winnings
+                          </button>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -135,6 +200,7 @@ function App() {
             selectedTeam={selectedBet.team}
             odds={selectedBet.odds}
             onConfirmBet={handleConfirmBet}
+            loading={loading}
           />
         )}
       </div>
