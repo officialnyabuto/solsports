@@ -27,7 +27,9 @@
     "react-dom": "^18.3.1",
     "decimal.js": "^10.4.3",
     "axios": "^1.6.7",
-    "swr": "^2.2.5"
+    "swr": "^2.2.5",
+    "@wormhole-foundation/connect-sdk": "^0.3.0",
+    "@wormhole-foundation/connect-sdk-solana": "^0.3.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.9.1",
