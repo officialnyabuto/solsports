@@ -1,5 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
+use pyth_sdk_solana::{load_price_feed_from_account_info, Price, PriceFeed};
 
 declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
 
@@ -16,6 +17,7 @@ pub mod solana_sports_betting {
         home_odds: u64,
         away_odds: u64,
         draw_odds: Option<u64>,
+        accepted_tokens: Vec<AcceptedToken>,
     ) -> Result<()> {
         let betting_pool = &mut ctx.accounts.betting_pool;
         betting_pool.authority = ctx.accounts.authority.key();
@@ -29,6 +31,8 @@ pub mod solana_sports_betting {
         betting_pool.total_pool = 0;
         betting_pool.is_settled = false;
         betting_pool.winner = None;
+        betting_pool.accepted_tokens = accepted_tokens;
+        betting_pool.oracle_price_feed = ctx.accounts.oracle_price_feed.key();
         Ok(())
     }
 
@@ -36,6 +40,7 @@ pub mod solana_sports_betting {
         ctx: Context<PlaceBet>,
         amount: u64,
         bet_type: BetType,
+        token_index: u8,
     ) -> Result<()> {
         let betting_pool = &mut ctx.accounts.betting_pool;
         let clock = Clock::get()?;
@@ -46,6 +51,30 @@ pub mod solana_sports_betting {
         );
 
         require!(!betting_pool.is_settled, BettingError::EventAlreadySettled);
+        
+        // Verify token is accepted
+        require!(
+            (token_index as usize) < betting_pool.accepted_tokens.len(),
+            BettingError::InvalidToken
+        );
+        
+        let token_info = &betting_pool.accepted_tokens[token_index as usize];
+        require!(
+            token_info.mint == ctx.accounts.bet_token_mint.key(),
+            BettingError::InvalidToken
+        );
+
+        // Get token price from Pyth
+        let price_feed: PriceFeed = load_price_feed_from_account_info(&ctx.accounts.oracle_price_feed)?;
+        let current_price: Price = price_feed.get_current_price()
+            .ok_or(BettingError::InvalidOracleData)?;
+        
+        // Calculate bet amount in USD
+        let usd_amount = (amount as i64)
+            .checked_mul(current_price.price)
+            .ok_or(BettingError::CalculationError)?
+            .checked_div(10_i64.pow(current_price.expo.unsigned_abs()))
+            .ok_or(BettingError::CalculationError)?;
 
         // Transfer tokens from bettor to pool
         let transfer_ctx = CpiContext::new(
@@ -62,10 +91,13 @@ pub mod solana_sports_betting {
         let bet = &mut ctx.accounts.bet;
         bet.bettor = ctx.accounts.bettor.key();
         bet.amount = amount;
+        bet.usd_amount = usd_amount as u64;
         bet.bet_type = bet_type;
         bet.claimed = false;
+        bet.token_index = token_index;
 
-        betting_pool.total_pool = betting_pool.total_pool.checked_add(amount)
+        betting_pool.total_pool = betting_pool.total_pool
+            .checked_add(usd_amount as u64)
             .ok_or(BettingError::CalculationError)?;
 
         Ok(())
@@ -73,7 +105,6 @@ pub mod solana_sports_betting {
 
     pub fn settle_event(
         ctx: Context<SettleEvent>,
-        winner: BetType,
     ) -> Result<()> {
         let betting_pool = &mut ctx.accounts.betting_pool;
         require!(!betting_pool.is_settled, BettingError::EventAlreadySettled);
@@ -83,6 +114,18 @@ pub mod solana_sports_betting {
             betting_pool.authority == ctx.accounts.authority.key(),
             BettingError::Unauthorized
         );
+
+        // Get event outcome from Pyth
+        let price_feed: PriceFeed = load_price_feed_from_account_info(&ctx.accounts.oracle_price_feed)?;
+        let outcome = price_feed.get_current_price()
+            .ok_or(BettingError::InvalidOracleData)?;
+        
+        // Determine winner based on oracle data
+        let winner = match outcome.price {
+            p if p > 0 => BetType::Home,
+            p if p < 0 => BetType::Away,
+            _ => BetType::Draw,
+        };
 
         betting_pool.is_settled = true;
         betting_pool.winner = Some(winner);
@@ -105,11 +148,25 @@ pub mod solana_sports_betting {
                     BetType::Draw => betting_pool.draw_odds.unwrap_or(0),
                 };
 
-                let winnings = bet.amount
+                let token_info = &betting_pool.accepted_tokens[bet.token_index as usize];
+                
+                // Get current token price from Pyth
+                let price_feed: PriceFeed = load_price_feed_from_account_info(&ctx.accounts.oracle_price_feed)?;
+                let current_price: Price = price_feed.get_current_price()
+                    .ok_or(BettingError::InvalidOracleData)?;
+
+                // Calculate winnings in token amount
+                let usd_winnings = bet.usd_amount
                     .checked_mul(odds)
                     .ok_or(BettingError::CalculationError)?
                     .checked_div(100)
                     .ok_or(BettingError::CalculationError)?;
+
+                let token_winnings = (usd_winnings as i64)
+                    .checked_mul(10_i64.pow(current_price.expo.unsigned_abs()))
+                    .ok_or(BettingError::CalculationError)?
+                    .checked_div(current_price.price)
+                    .ok_or(BettingError::CalculationError)? as u64;
 
                 let transfer_ctx = CpiContext::new(
                     ctx.accounts.token_program.to_account_info(),
@@ -119,7 +176,7 @@ pub mod solana_sports_betting {
                         authority: ctx.accounts.betting_pool.to_account_info(),
                     },
                 );
-                token::transfer(transfer_ctx, winnings)?;
+                token::transfer(transfer_ctx, token_winnings)?;
 
                 bet.claimed = true;
             }
@@ -136,6 +193,12 @@ pub enum BetType {
     Draw,
 }
 
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct AcceptedToken {
+    pub mint: Pubkey,
+    pub decimals: u8,
+}
+
 #[account]
 pub struct BettingPool {
     pub authority: Pubkey,
@@ -149,22 +212,28 @@ pub struct BettingPool {
     pub total_pool: u64,
     pub is_settled: bool,
     pub winner: Option<BetType>,
+    pub accepted_tokens: Vec<AcceptedToken>,
+    pub oracle_price_feed: Pubkey,
 }
 
 #[account]
 pub struct Bet {
     pub bettor: Pubkey,
     pub amount: u64,
+    pub usd_amount: u64,
     pub bet_type: BetType,
     pub claimed: bool,
+    pub token_index: u8,
 }
 
 #[derive(Accounts)]
 pub struct InitializeBettingPool<'info> {
-    #[account(init, payer = authority, space = 8 + 32 + 32 + 32 + 32 + 8 + 8 + 8 + 8 + 1 + 1)]
+    #[account(init, payer = authority, space = 8 + 32 + 32 + 32 + 32 + 8 + 8 + 8 + 8 + 1 + 1 + 256 + 32)]
     pub betting_pool: Account<'info, BettingPool>,
     #[account(mut)]
     pub authority: Signer<'info>,
+    /// CHECK: Oracle price feed account
+    pub oracle_price_feed: AccountInfo<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -172,14 +241,17 @@ pub struct InitializeBettingPool<'info> {
 pub struct PlaceBet<'info> {
     #[account(mut)]
     pub betting_pool: Account<'info, BettingPool>,
-    #[account(init, payer = bettor, space = 8 + 32 + 8 + 1 + 1)]
+    #[account(init, payer = bettor, space = 8 + 32 + 8 + 8 + 1 + 1 + 1)]
     pub bet: Account<'info, Bet>,
     #[account(mut)]
     pub bettor: Signer<'info>,
+    pub bet_token_mint: Account<'info, token::Mint>,
     #[account(mut)]
     pub bettor_token_account: Account<'info, TokenAccount>,
     #[account(mut)]
     pub pool_token_account: Account<'info, TokenAccount>,
+    /// CHECK: Oracle price feed account
+    pub oracle_price_feed: AccountInfo<'info>,
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
 }
@@ -189,6 +261,8 @@ pub struct SettleEvent<'info> {
     #[account(mut)]
     pub betting_pool: Account<'info, BettingPool>,
     pub authority: Signer<'info>,
+    /// CHECK: Oracle price feed account
+    pub oracle_price_feed: AccountInfo<'info>,
 }
 
 #[derive(Accounts)]
@@ -201,6 +275,8 @@ pub struct ClaimWinnings<'info> {
     pub pool_token_account: Account<'info, TokenAccount>,
     #[account(mut)]
     pub winner_token_account: Account<'info, TokenAccount>,
+    /// CHECK: Oracle price feed account
+    pub oracle_price_feed: AccountInfo<'info>,
     pub token_program: Program<'info, Token>,
 }
 
@@ -218,4 +294,8 @@ pub enum BettingError {
     Unauthorized,
     #[msg("Calculation error")]
     CalculationError,
+    #[msg("Invalid token")]
+    InvalidToken,
+    #[msg("Invalid oracle data")]
+    InvalidOracleData,
 }
