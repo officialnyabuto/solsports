@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
+import { toast } from 'sonner';
 import { WalletContextProvider } from './components/WalletProvider';
 import { EventCard } from './components/EventCard';
 import { BettingModal } from './components/BettingModal';
@@ -8,6 +9,7 @@ import { WalletBalance } from './components/WalletBalance';
 import { SportEvent, Bet, WalletBalance as WalletBalanceType } from './types/betting';
 import { useProgramService } from './hooks/useProgramService';
 import { PublicKey } from '@solana/web3.js';
+import { checkBettingLimit } from './utils/rate-limiter';
 
 function App() {
   const { connected, publicKey } = useWallet();
@@ -55,6 +57,7 @@ function App() {
       setEvents(mappedEvents);
     } catch (error) {
       console.error('Error fetching betting pools:', error);
+      toast.error('Failed to fetch betting pools');
     } finally {
       setLoading(false);
     }
@@ -76,6 +79,7 @@ function App() {
       setBets(mappedBets);
     } catch (error) {
       console.error('Error fetching user bets:', error);
+      toast.error('Failed to fetch your bets');
     }
   };
 
@@ -84,15 +88,24 @@ function App() {
   };
 
   const handleConfirmBet = async (amount: number) => {
-    if (!selectedBet || !programService) return;
+    if (!selectedBet || !programService || !publicKey) return;
 
     try {
       setLoading(true);
+      
+      // Check rate limit before placing bet
+      await checkBettingLimit(publicKey.toString());
+      
+      const loadingToast = toast.loading('Placing your bet...');
+      
       await programService.placeBet(
         selectedBet.poolPubkey,
         amount * 100, // Convert to program's decimal representation
         selectedBet.team
       );
+      
+      toast.dismiss(loadingToast);
+      toast.success('Bet placed successfully!');
       
       // Refresh user bets
       await fetchUserBets();
@@ -100,20 +113,32 @@ function App() {
       setSelectedBet(null);
     } catch (error) {
       console.error('Error placing bet:', error);
+      if (error.name === 'RateLimitError') {
+        toast.error(error.message);
+      } else {
+        toast.error('Failed to place bet. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
   };
 
   const handleClaimWinnings = async (betPubkey: PublicKey, poolPubkey: PublicKey) => {
-    if (!programService) return;
+    if (!programService || !publicKey) return;
 
     try {
       setLoading(true);
+      const loadingToast = toast.loading('Claiming winnings...');
+      
       await programService.claimWinnings(poolPubkey, betPubkey);
+      
+      toast.dismiss(loadingToast);
+      toast.success('Winnings claimed successfully!');
+      
       await fetchUserBets(); // Refresh bets after claiming
     } catch (error) {
       console.error('Error claiming winnings:', error);
+      toast.error('Failed to claim winnings. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -140,7 +165,7 @@ function App() {
                 <h2 className="text-xl font-semibold mb-4">Available Events</h2>
                 {loading ? (
                   <div className="text-center py-8">Loading events...</div>
-                ) : (
+                ) : events.length > 0 ? (
                   events.map((event) => (
                     <EventCard
                       key={event.id}
@@ -150,6 +175,10 @@ function App() {
                       }
                     />
                   ))
+                ) : (
+                  <div className="text-center py-8 text-gray-600">
+                    No events available at the moment
+                  </div>
                 )}
               </div>
 
@@ -174,8 +203,9 @@ function App() {
                           <button
                             onClick={() => handleClaimWinnings(bet.betPubkey, events.find(e => e.id === bet.eventId)?.poolPubkey!)}
                             className="mt-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition"
+                            disabled={loading}
                           >
-                            Claim Winnings
+                            {loading ? 'Processing...' : 'Claim Winnings'}
                           </button>
                         )}
                       </div>

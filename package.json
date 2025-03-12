@@ -29,7 +29,10 @@
     "axios": "^1.6.7",
     "swr": "^2.2.5",
     "@wormhole-foundation/connect-sdk": "^0.3.0",
-    "@wormhole-foundation/connect-sdk-solana": "^0.3.0"
+    "@wormhole-foundation/connect-sdk-solana": "^0.3.0",
+    "sonner": "^1.4.3",
+    "react-error-boundary": "^4.0.13",
+    "rate-limiter-flexible": "^5.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.9.1",
