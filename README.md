@@ -1,4 +1,4 @@
-# Solana Sports Betting dApp
+# SolSports
 
 A decentralized sports betting platform built on Solana blockchain, allowing users to place bets on sporting events using SPL tokens (USDC). The platform features a React frontend with Solana wallet integration and a secure Rust-based Solana program for managing bets.
 
@@ -9,27 +9,25 @@ A decentralized sports betting platform built on Solana blockchain, allowing use
 - Secure bet management through Solana smart contracts
 - Automated payouts for winning bets
 - User-friendly interface with Phantom wallet integration
+- Comprehensive analytics and compliance features
+- Pyth oracle integration for automated settlements
 
 ## Project Structure
 
 ```
-solana-sports-betting/
+solsports/
 ├── programs/                    # Solana program (smart contract)
 │   └── solana-sports-betting/
 │       └── src/
 │           └── lib.rs          # Main program logic
 ├── src/                        # Frontend source code
 │   ├── components/             # React components
-│   │   ├── BettingModal.tsx   # Betting interface
-│   │   ├── EventCard.tsx      # Sports event display
-│   │   ├── WalletBalance.tsx  # User balance display
-│   │   └── WalletProvider.tsx # Solana wallet integration
+│   ├── hooks/                  # Custom React hooks
+│   ├── utils/                  # Utility functions and services
 │   ├── types/                  # TypeScript type definitions
-│   │   └── betting.ts
 │   ├── App.tsx                # Main application component
 │   └── main.tsx               # Application entry point
-├── tests/                      # Program tests
-│   └── solana-sports-betting.ts
+├── tests/                      # Program and integration tests
 ├── Anchor.toml                 # Anchor configuration
 ├── package.json               # Project dependencies
 └── README.md                  # Project documentation
@@ -48,7 +46,7 @@ solana-sports-betting/
 1. Clone the repository:
 ```bash
 git clone <repository-url>
-cd solana-sports-betting
+cd solsports
 ```
 
 2. Install dependencies:
@@ -90,43 +88,42 @@ anchor test
 
 ## Smart Contract (Solana Program)
 
-The Solana program (`programs/solana-sports-betting/src/lib.rs`) implements the following functionality:
+The Solana program implements:
 
-- `initialize_betting_pool`: Create new betting events
-- `place_bet`: Place bets on events
-- `settle_event`: Settle event outcomes
-- `claim_winnings`: Claim winnings for successful bets
+- Betting pool initialization
+- Bet placement
+- Event settlement via Pyth oracle
+- Winnings distribution
+- Multi-token support
 
-## Frontend
+## Frontend Features
 
-The React frontend provides:
-
-- Wallet connection using `@solana/wallet-adapter`
-- Event listing and betting interface
-- Real-time balance updates
-- Bet placement and management
-- Responsive design using Tailwind CSS
+- Wallet integration using `@solana/wallet-adapter`
+- Real-time event listing
+- Interactive betting interface
+- User balance tracking
+- Responsive design with Tailwind CSS
+- Analytics dashboard
+- Compliance monitoring
 
 ## Testing
 
-The project includes comprehensive tests for the Solana program:
+Comprehensive test suite includes:
 
-- Unit tests for program instructions
-- Integration tests for the complete betting flow
-- Mock data for testing various scenarios
+- Smart contract unit tests
+- Integration tests
+- Oracle integration tests
+- Analytics service tests
+- Compliance system tests
 
-Run tests with:
-```bash
-anchor test
-```
+## Security Features
 
-## Security
-
-- Row-level security for bet access
-- Comprehensive error handling
-- Input validation
-- Time-based constraints for betting
-- Authority checks for administrative actions
+- Rate limiting for betting actions
+- Comprehensive compliance checks
+- Betting limits enforcement
+- Oracle data validation
+- Error handling and recovery
+- Transaction monitoring
 
 ## Contributing
 

@@ -150,7 +150,7 @@ function App() {
         <nav className="bg-white shadow-lg">
           <div className="max-w-6xl mx-auto px-4 py-4">
             <div className="flex justify-between items-center">
-              <h1 className="text-2xl font-bold text-blue-600">Solana Sports Betting</h1>
+              <h1 className="text-2xl font-bold text-blue-600">SolSports</h1>
               <WalletMultiButton />
             </div>
           </div>
@@ -216,8 +216,8 @@ function App() {
             </>
           ) : (
             <div className="text-center py-12">
-              <h2 className="text-2xl font-bold mb-4">Welcome to Solana Sports Betting</h2>
-              <p className="text-gray-600 mb-8">Connect your wallet to start betting</p>
+              <h2 className="text-2xl font-bold mb-4">Welcome to SolSports</h2>
+              <p className="text-gray-600 mb-8">Connect your wallet to start betting on your favorite sports</p>
             </div>
           )}
         </main>
